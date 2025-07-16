@@ -3,24 +3,32 @@
  * This script manages the central configuration for the multi-sheet church system.
  */
 
-/// This function runs automatically when the spreadsheet is opened.
-// It creates the custom menu for the setup process.
+/**
+ * This function runs automatically when the spreadsheet is opened.
+ * It creates the custom menus for the setup process and user manual.
+ */
 function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu('⚙️ System Setup')
+  const ui = SpreadsheetApp.getUi();
+  
+  // System Setup Menu
+  ui.createMenu('⚙️ System Setup')
     .addItem('🎨 1. Create Config Sheet', 'createConfigSheet')
     .addSeparator()
     .addItem('🚀 2. Initialize System', 'initializeSystem')
     .addSeparator()
-    .addSubMenu(SpreadsheetApp.getUi().createMenu('🔄 Data Sync')
+    .addSubMenu(ui.createMenu('🔄 Data Sync')
         .addItem('Update Activity Levels', 'updateActivityLevels')
         .addItem('Update Giving Levels', 'updateGivingLevelsFromDonorStats'))
+    .addToUi();
+    
+  // User Manual Menu
+  ui.createMenu('📖 User Manual')
+    .addItem('Open in New Tab', 'openManualInNewTab') // Updated to call the new function
     .addToUi();
 }
 
 /**
  * Creates and formats the "Config for Urls" sheet with all necessary headers and fields.
- * -- THIS IS THE CORRECTED VERSION --
  */
 function createConfigSheet() {
   const ui = SpreadsheetApp.getUi();
@@ -75,11 +83,8 @@ function createConfigSheet() {
 
   sheet.getRange(2, 1, configData.length, 3).setValues(configData);
   
-  // -- FIXED LINES START HERE --
-  // Use getRangeList for multiple, non-contiguous ranges.
   sheet.getRangeList(['A2:A20', 'C2:C20']).setBackground('#f3f3f3');
   sheet.getRangeList(['A2', 'A10', 'A16']).setFontWeight('bold');
-  // -- FIXED LINES END HERE --
   
   ui.alert(`The "${sheetName}" sheet has been created and formatted. Please fill in the required URLs in Column B, then run "System Setup > 2. Initialize System".`);
 }
@@ -90,7 +95,7 @@ function createConfigSheet() {
 function initializeSystem() {
   const ui = SpreadsheetApp.getUi();
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  const sheetName = 'Config for Urls'; // Defined the new name here
+  const sheetName = 'Config for Urls';
   const configSheet = spreadsheet.getSheetByName(sheetName);
 
   if (!configSheet) {
@@ -124,4 +129,21 @@ function initializeSystem() {
  */
 function getSetting(key) {
   return PropertiesService.getScriptProperties().getProperty(key);
+}
+
+/**
+ * Opens the user manual in a new browser tab using an HTML service workaround.
+ */
+function openManualInNewTab() {
+  const url = 'https://docs.google.com/document/d/1BF9XVE1mWOHzXpd9dTHRpcuBkq68FaKmXjt1t_qmyMk/edit?usp=sharing';
+  const html = `
+    <script>
+      window.open('${url}', '_blank');
+      google.script.host.close();
+    </script>
+  `;
+  const ui = HtmlService.createHtmlOutput(html)
+      .setWidth(100)
+      .setHeight(1);
+  SpreadsheetApp.getUi().showModalDialog(ui, 'Opening...');
 }
