@@ -1,4 +1,3 @@
-
 /**
  * Contains functions to sync data (like Activity Level and Giving Level) from other spreadsheets
  * into the main Directory sheet. This script now gets all its settings from the central config.
@@ -47,14 +46,16 @@ function updateActivityLevels() {
     return;
   }
 
-  // Create a map for quick lookups: "PersonID_fullname" -> "Activity Level"
+  // CHANGED: The map now uses only the full name as the key: "fullname" -> "Activity Level"
   const attendanceMap = new Map();
   for (let i = 1; i < attendanceValues.length; i++) {
-    const personId = String(attendanceValues[i][0] || "").trim(); // ATT_PERSON_ID_COL_IDX = 0
-    const fullName = String(attendanceValues[i][1] || "").trim().toLowerCase(); // ATT_FULL_NAME_COL_IDX = 1
+    // UPDATED: More robust trimming to handle extra spaces between names.
+    const fullName = String(attendanceValues[i][1] || "").trim().replace(/\s+/g, ' ').toLowerCase(); // ATT_FULL_NAME_COL_IDX = 1
     const activityLevel = attendanceValues[i][11]; // ATT_ACTIVITY_LEVEL_COL_IDX = 11
-    if (personId && fullName) {
-      attendanceMap.set(`${personId}_${fullName}`, activityLevel);
+    
+    // CHANGED: We only need the full name to create a map entry.
+    if (fullName) {
+      attendanceMap.set(fullName, activityLevel);
     }
   }
 
@@ -63,44 +64,40 @@ function updateActivityLevels() {
     return;
   }
 
-  // We will now build two arrays: one for the new activity levels and one for the row background colors.
   let updatesMade = 0;
   const newActivityLevelsForDirectory = [];
   const backgroundsForDirectory = [];
   const numColumns = directoryValues[0].length;
-  const LIGHT_GRAY = '#efefef'; // This is "light gray 2"
+  const LIGHT_GRAY = '#efefef'; 
 
   for (let i = 0; i < directoryValues.length; i++) {
-    // Handle the header row first
     if (i === 0) {
-      newActivityLevelsForDirectory.push([directoryValues[i][19]]); // Keep header text
-      backgroundsForDirectory.push(Array(numColumns).fill(null)); // No background for header
+      newActivityLevelsForDirectory.push([directoryValues[i][19]]); 
+      backgroundsForDirectory.push(Array(numColumns).fill(null)); 
       continue;
     }
 
     const dirRow = directoryValues[i];
-    const personId = String(dirRow[0] || "").trim(); // DIR_PERSON_ID_COL_IDX = 0
-    const fullName = String(dirRow[1] || "").trim().toLowerCase(); // DIR_FULL_NAME_COL_IDX = 1
+    // UPDATED: More robust trimming to handle extra spaces between names.
+    const fullName = String(dirRow[1] || "").trim().replace(/\s+/g, ' ').toLowerCase(); // DIR_FULL_NAME_COL_IDX = 1
     const currentActivityValueInDir = dirRow[19]; // DIR_ACTIVITY_LEVEL_COL_IDX = 19
     let newActivityValue = currentActivityValueInDir;
-    let backgroundRow = Array(numColumns).fill(null); // Default background is null (transparent/white)
+    let backgroundRow = Array(numColumns).fill(null);
 
-    if (personId && fullName) {
-      const lookupKey = `${personId}_${fullName}`;
+    // CHANGED: We only need the full name to perform the lookup.
+    if (fullName) {
+      // CHANGED: The lookupKey is now just the full name.
+      const lookupKey = fullName;
       if (attendanceMap.has(lookupKey)) {
         // CASE 1: Person is FOUND in the attendance tracker.
-        // Update their level and ensure the background is cleared.
         newActivityValue = attendanceMap.get(lookupKey);
-        // The backgroundRow is already set to null, so any previous gray highlight will be removed.
       } else {
         // CASE 2: Person is NOT FOUND in the attendance tracker.
-        // Set their level to "Archive" and set the background to light gray.
         newActivityValue = 'Archive';
         backgroundRow = Array(numColumns).fill(LIGHT_GRAY);
       }
     }
 
-    // Check if an update is needed before incrementing the counter
     if (newActivityValue !== currentActivityValueInDir) {
       updatesMade++;
     }
@@ -110,12 +107,8 @@ function updateActivityLevels() {
   }
 
   if (updatesMade > 0) {
-    // Set the activity level values in one operation
     directorySheet.getRange(1, 20, newActivityLevelsForDirectory.length, 1).setValues(newActivityLevelsForDirectory); // DIR_ACTIVITY_LEVEL_COL_IDX + 1 = 20
-    
-    // Set the background colors in a second operation
     directorySheet.getRange(1, 1, backgroundsForDirectory.length, numColumns).setBackgrounds(backgroundsForDirectory);
-
     Logger.log(`Success: updateActivityLevels - ${updatesMade} activity levels and/or backgrounds updated in "${directorySheetName}".`);
   } else {
     Logger.log(`Info: updateActivityLevels - No matching records required an update for activity levels.`);
