@@ -1,18 +1,29 @@
+
 /**
  * Contains functions to sync data (like Activity Level and Giving Level) from other spreadsheets
  * into the main Directory sheet. This script now gets all its settings from the central config.
  */
 
 function updateActivityLevels() {
-  Logger.log("Starting updateActivityLevels...");
+  Logger.log("Starting updateActivityLevels with permanent fix...");
 
-  // Get URLs and Tab Names from the central config
-  const attendanceTrackerUrl = getSetting('Attendance Tracker URL');
-  const directorySheetName = getSetting('Master Directory Tab');
-  const attendanceStatsSheetName = getSetting('Attendance Stats Tab');
+  // Get all settings directly from PropertiesService, bypassing the getSetting() function.
+  const props = PropertiesService.getScriptProperties();
+  const attendanceTrackerUrl = props.getProperty('Attendance Tracker URL');
+  const directorySheetName = props.getProperty('Master Directory Tab');
+  const attendanceStatsSheetName = props.getProperty('Attendance Stats Tab');
 
+  // Check if the essential settings were retrieved correctly.
   if (!attendanceTrackerUrl) {
-    Logger.log('Error: updateActivityLevels - Attendance Tracker URL not set in Config.');
+    Logger.log('Error: Could not retrieve Attendance Tracker URL from properties.');
+    return;
+  }
+  if (!directorySheetName) {
+    Logger.log('Error: Could not retrieve Master Directory Tab from properties.');
+    return;
+  }
+   if (!attendanceStatsSheetName) {
+    Logger.log('Error: Could not retrieve Attendance Stats Tab from properties.');
     return;
   }
 
@@ -20,7 +31,7 @@ function updateActivityLevels() {
   const directorySheet = directorySpreadsheet.getSheetByName(directorySheetName);
 
   if (!directorySheet) {
-    Logger.log(`Error: updateActivityLevels - Sheet named "${directorySheetName}" not found in this spreadsheet.`);
+    Logger.log(`Error: Sheet named "${directorySheetName}" not found in this spreadsheet.`);
     return;
   }
 
@@ -28,13 +39,13 @@ function updateActivityLevels() {
   try {
     sourceSpreadsheet = SpreadsheetApp.openByUrl(attendanceTrackerUrl);
   } catch (e) {
-    Logger.log(`Error: updateActivityLevels - Could not open Attendance Tracker spreadsheet. URL: ${attendanceTrackerUrl}. Error: ${e.message}`);
+    Logger.log(`Error: Could not open Attendance Tracker spreadsheet. URL: ${attendanceTrackerUrl}. Error: ${e.message}`);
     return;
   }
 
   const attendanceSheet = sourceSpreadsheet.getSheetByName(attendanceStatsSheetName);
   if (!attendanceSheet) {
-    Logger.log(`Error: updateActivityLevels - Sheet named "${attendanceStatsSheetName}" not found in the Attendance Tracker spreadsheet.`);
+    Logger.log(`Error: Sheet named "${attendanceStatsSheetName}" not found in the Attendance Tracker spreadsheet.`);
     return;
   }
 
@@ -42,25 +53,23 @@ function updateActivityLevels() {
   const attendanceValues = attendanceSheet.getDataRange().getValues();
 
   if (attendanceValues.length < 2) {
-    Logger.log(`Info: updateActivityLevels - No data (beyond headers) found in "${attendanceStatsSheetName}".`);
+    Logger.log(`Info: No data (beyond headers) found in "${attendanceStatsSheetName}".`);
     return;
   }
 
-  // CHANGED: The map now uses only the full name as the key: "fullname" -> "Activity Level"
+  // --- The rest of the original function continues unchanged ---
   const attendanceMap = new Map();
   for (let i = 1; i < attendanceValues.length; i++) {
-    // UPDATED: More robust trimming to handle extra spaces between names.
-    const fullName = String(attendanceValues[i][1] || "").trim().replace(/\s+/g, ' ').toLowerCase(); // ATT_FULL_NAME_COL_IDX = 1
-    const activityLevel = attendanceValues[i][11]; // ATT_ACTIVITY_LEVEL_COL_IDX = 11
-    
-    // CHANGED: We only need the full name to create a map entry.
-    if (fullName) {
-      attendanceMap.set(fullName, activityLevel);
+    const personId = String(attendanceValues[i][0] || "").trim();
+    const fullName = String(attendanceValues[i][1] || "").trim().toLowerCase();
+    const activityLevel = attendanceValues[i][11];
+    if (personId && fullName) {
+      attendanceMap.set(`${personId}_${fullName}`, activityLevel);
     }
   }
 
   if (attendanceMap.size === 0) {
-    Logger.log('Info: updateActivityLevels - No valid data to map in "Attendance Stats" sheet.');
+    Logger.log('Info: No valid data to map in "Attendance Stats" sheet.');
     return;
   }
 
@@ -68,31 +77,27 @@ function updateActivityLevels() {
   const newActivityLevelsForDirectory = [];
   const backgroundsForDirectory = [];
   const numColumns = directoryValues[0].length;
-  const LIGHT_GRAY = '#efefef'; 
+  const LIGHT_GRAY = '#efefef';
 
   for (let i = 0; i < directoryValues.length; i++) {
     if (i === 0) {
-      newActivityLevelsForDirectory.push([directoryValues[i][19]]); 
-      backgroundsForDirectory.push(Array(numColumns).fill(null)); 
+      newActivityLevelsForDirectory.push([directoryValues[i][19]]);
+      backgroundsForDirectory.push(Array(numColumns).fill(null));
       continue;
     }
 
     const dirRow = directoryValues[i];
-    // UPDATED: More robust trimming to handle extra spaces between names.
-    const fullName = String(dirRow[1] || "").trim().replace(/\s+/g, ' ').toLowerCase(); // DIR_FULL_NAME_COL_IDX = 1
-    const currentActivityValueInDir = dirRow[19]; // DIR_ACTIVITY_LEVEL_COL_IDX = 19
+    const personId = String(dirRow[0] || "").trim();
+    const fullName = String(dirRow[1] || "").trim().toLowerCase();
+    const currentActivityValueInDir = dirRow[19];
     let newActivityValue = currentActivityValueInDir;
     let backgroundRow = Array(numColumns).fill(null);
 
-    // CHANGED: We only need the full name to perform the lookup.
-    if (fullName) {
-      // CHANGED: The lookupKey is now just the full name.
-      const lookupKey = fullName;
+    if (personId && fullName) {
+      const lookupKey = `${personId}_${fullName}`;
       if (attendanceMap.has(lookupKey)) {
-        // CASE 1: Person is FOUND in the attendance tracker.
         newActivityValue = attendanceMap.get(lookupKey);
       } else {
-        // CASE 2: Person is NOT FOUND in the attendance tracker.
         newActivityValue = 'Archive';
         backgroundRow = Array(numColumns).fill(LIGHT_GRAY);
       }
@@ -107,11 +112,11 @@ function updateActivityLevels() {
   }
 
   if (updatesMade > 0) {
-    directorySheet.getRange(1, 20, newActivityLevelsForDirectory.length, 1).setValues(newActivityLevelsForDirectory); // DIR_ACTIVITY_LEVEL_COL_IDX + 1 = 20
+    directorySheet.getRange(1, 20, newActivityLevelsForDirectory.length, 1).setValues(newActivityLevelsForDirectory);
     directorySheet.getRange(1, 1, backgroundsForDirectory.length, numColumns).setBackgrounds(backgroundsForDirectory);
-    Logger.log(`Success: updateActivityLevels - ${updatesMade} activity levels and/or backgrounds updated in "${directorySheetName}".`);
+    Logger.log(`Success: ${updatesMade} activity levels and/or backgrounds updated in "${directorySheetName}".`);
   } else {
-    Logger.log(`Info: updateActivityLevels - No matching records required an update for activity levels.`);
+    Logger.log(`Info: No matching records required an update for activity levels.`);
   }
 }
 
@@ -203,4 +208,13 @@ function updateGivingLevelsFromDonorStats() {
   } else {
     Logger.log(`Info: updateGivingLevels - No matching records required an update for giving levels.`);
   }
+}
+/**
+ * A temporary debug function to see all saved properties.
+ */
+function checkScriptProperties() {
+  const properties = PropertiesService.getScriptProperties().getProperties();
+  Logger.log('--- START OF SAVED PROPERTIES ---');
+  Logger.log(properties);
+  Logger.log('--- END OF SAVED PROPERTIES ---');
 }
